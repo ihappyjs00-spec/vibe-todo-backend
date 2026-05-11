@@ -30,16 +30,15 @@ const envClientOrigins = process.env.CLIENT_ORIGIN
   ? process.env.CLIENT_ORIGIN.split(",").map((o) => o.trim()).filter(Boolean)
   : [];
 
-const isProd = process.env.NODE_ENV === "production";
-
 function isAllowedCorsOrigin(origin) {
   if (!origin) return true;
   if (envClientOrigins.length > 0) {
     return envClientOrigins.includes(origin);
   }
   if (LIVE_SERVER_ORIGINS.includes(origin)) return true;
-  if (!isProd) {
-    return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin);
+  // 로컬 Vite(5173 등)에서 Heroku API 호출 — production에서도 localhost/127만 허용
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) {
+    return true;
   }
   return false;
 }
