@@ -8,8 +8,11 @@ import todoRouter from "./routers/todoRouter.js";
 
 dotenv.config();
 
-// Windows 등에서 nslookup은 되는데 Node SRV(querySrv)만 ECONNREFUSED 나는 경우 대비
-if (process.env.MONGODB_URI?.startsWith("mongodb+srv://")) {
+// 로컬 Windows 등에서 Node SRV(querySrv)만 실패할 때만 공용 DNS 사용 (Heroku는 DYNO 설정됨)
+if (
+  process.env.MONGODB_URI?.startsWith("mongodb+srv://") &&
+  !process.env.DYNO
+) {
   dns.setServers(["8.8.8.8", "8.8.4.4"]);
 }
 
@@ -65,7 +68,13 @@ app.use(express.json());
 app.use(morgan("dev"));
 
 app.get("/health", (_req, res) => {
-  res.json({ ok: true });
+  // 0 disconnected, 1 connected, 2 connecting, 3 disconnecting
+  const readyState = mongoose.connection.readyState;
+  res.json({
+    ok: true,
+    mongoConnected: readyState === 1,
+    mongoReadyState: readyState
+  });
 });
 
 const PORT = process.env.PORT || 5000;
@@ -78,19 +87,28 @@ if (!MONGODB_URI) {
 
 app.use("/todos", todoRouter);
 
-app.listen(PORT, () => {
-  // eslint-disable-next-line no-console
-  console.log(`Server listening on http://localhost:${PORT}`);
-  mongoose
-    .connect(MONGODB_URI, {
-      serverSelectionTimeoutMS: 5000
-    })
-    .then(() => {
-      // eslint-disable-next-line no-console
-      console.log("연결 성공");
-    })
-    .catch((err) => {
-      console.error("MongoDB 연결 실패", err);
-    });
+app.use((err, _req, res, _next) => {
+  console.error(err);
+  res.status(500).json({ error: err.message || "Internal Server Error" });
 });
+
+async function start() {
+  try {
+    await mongoose.connect(MONGODB_URI, {
+      serverSelectionTimeoutMS: 10_000
+    });
+    // eslint-disable-next-line no-console
+    console.log("MongoDB 연결 성공");
+  } catch (err) {
+    console.error("MongoDB 연결 실패 — Heroku에는 MONGODB_URI, Atlas는 IP 허용(0.0.0.0/0) 확인", err);
+    process.exit(1);
+  }
+
+  app.listen(PORT, () => {
+    // eslint-disable-next-line no-console
+    console.log(`Server listening on http://localhost:${PORT}`);
+  });
+}
+
+start();
 
