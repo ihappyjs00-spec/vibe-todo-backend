@@ -18,6 +18,9 @@ if (
 
 const app = express();
 
+/** Mongo 연결 시도 후 실패하면 mongoose 에러 메시지(비밀번호 등은 넣지 않음) */
+let mongoConnectError = null;
+
 const LIVE_SERVER_ORIGINS = [
   "http://127.0.0.1:5500",
   "http://localhost:5500"
@@ -73,7 +76,8 @@ app.get("/health", (_req, res) => {
   res.json({
     ok: true,
     mongoConnected: readyState === 1,
-    mongoReadyState: readyState
+    mongoReadyState: readyState,
+    ...(mongoConnectError ? { mongoReason: mongoConnectError } : {})
   });
 });
 
@@ -85,7 +89,20 @@ if (!MONGODB_URI) {
   process.exit(1);
 }
 
-app.use("/todos", todoRouter);
+app.use(
+  "/todos",
+  (req, res, next) => {
+    if (mongoose.connection.readyState !== 1) {
+      res.status(503).json({
+        error: "Database unavailable",
+        ...(mongoConnectError ? { mongoReason: mongoConnectError } : {})
+      });
+      return;
+    }
+    next();
+  },
+  todoRouter
+);
 
 app.use((err, _req, res, _next) => {
   console.error(err);
@@ -93,6 +110,7 @@ app.use((err, _req, res, _next) => {
 });
 
 async function start() {
+  mongoConnectError = null;
   try {
     await mongoose.connect(MONGODB_URI, {
       serverSelectionTimeoutMS: 10_000
@@ -100,15 +118,25 @@ async function start() {
     // eslint-disable-next-line no-console
     console.log("MongoDB 연결 성공");
   } catch (err) {
-    console.error("MongoDB 연결 실패 — Heroku에는 MONGODB_URI, Atlas는 IP 허용(0.0.0.0/0) 확인", err);
-    process.exit(1);
+    mongoConnectError = err.message || String(err);
+    console.error(
+      "MongoDB 연결 실패 — Heroku Config의 MONGODB_URI, Atlas Network Access(0.0.0.0/0) 확인",
+      err
+    );
   }
 
   app.listen(PORT, () => {
     // eslint-disable-next-line no-console
     console.log(`Server listening on http://localhost:${PORT}`);
+    if (mongoConnectError) {
+      // eslint-disable-next-line no-console
+      console.error("서버는 떴지만 DB 미연결. /health 의 mongoReason 확인.");
+    }
   });
 }
 
-start();
+start().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
 
