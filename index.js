@@ -36,8 +36,10 @@ function isAllowedCorsOrigin(origin) {
     return envClientOrigins.includes(origin);
   }
   if (LIVE_SERVER_ORIGINS.includes(origin)) return true;
-  // 로컬 Vite(5173 등)에서 Heroku API 호출 — production에서도 localhost/127만 허용
   if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) {
+    return true;
+  }
+  if (/\.vercel\.app$/i.test(origin)) {
     return true;
   }
   return false;
